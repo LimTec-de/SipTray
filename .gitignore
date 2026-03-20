@@ -1,0 +1,99 @@
+# Swift Package Manager
+.build/
+.swiftpm/
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+DerivedData/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Build artifacts
+*.app
+*.dSYM
+*.o
+*.a
+*.dylib
+*.framework
+*.xcarchive
+*.ipa
+*.dmg
+
+# Build script artifacts
+.build/
+*.icns
+*.iconset/
+*.entitlements
+*-1024.png
+
+# Xcode
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+xcuserdata/
+*.xccheckout
+*.moved-aside
+*.xcuserstate
+*.xcscmblueprint
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift
+*.swiftpm
+.swiftpm/
+
+# Code signing
+*.p12
+*.mobileprovision
+*.certSigningRequest
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
+
+# Vendor build artifacts (if Vendor is committed, ignore its build files)
+Vendor/**/build/
+Vendor/**/.build/
+Vendor/**/*.o
+Vendor/**/*.a
+Vendor/**/.codex-local-build-stamp

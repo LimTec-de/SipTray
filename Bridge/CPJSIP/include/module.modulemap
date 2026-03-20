@@ -1,0 +1,4 @@
+module CPJSIP [system] {
+    header "CPJSIP/CPJSIP.h"
+    export *
+}
