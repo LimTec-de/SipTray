@@ -49,7 +49,15 @@ jobs:
       if: steps.pjsip-cache.outputs.cache-hit != 'true'
       run: |
         cd Vendor/pjproject
-        test -x ./configure
+        echo "PJPROJECT HEAD:"
+        git rev-parse --short HEAD || true
+        echo "PJPROJECT directory snapshot:"
+        ls -la | sed -n '1,40p'
+        if [[ ! -x ./configure ]]; then
+          echo "Missing Vendor/pjproject/configure after checkout" >&2
+          exit 1
+        fi
+        ../Scripts/patch_pjproject.sh .
         make distclean >/dev/null 2>&1 || true
         export MACOSX_DEPLOYMENT_TARGET=13.0
         ./configure \

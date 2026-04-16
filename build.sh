@@ -33,6 +33,7 @@ prepare_pjsip() {
         echo "Initialize vendor submodules before building: git submodule update --init --recursive" >&2
         exit 1
       fi
+      "$ROOT_DIR/Scripts/patch_pjproject.sh" "$PJSIP_DIR"
       make distclean >/dev/null 2>&1 || true
       export MACOSX_DEPLOYMENT_TARGET=13.0
       ./configure \
