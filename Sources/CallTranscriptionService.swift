@@ -35,7 +35,7 @@ final class CallTranscriptionService: @unchecked Sendable {
 
     init() {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let directory = appSupport.appendingPathComponent("SIPPhone", isDirectory: true)
+        let directory = appSupport.appendingPathComponent("SipTray", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         directoryURL = directory.appendingPathComponent("Transcripts", isDirectory: true)
         try? FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)

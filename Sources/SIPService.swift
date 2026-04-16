@@ -125,7 +125,7 @@ final class PJSIPSIPService: SIPServiceProtocol {
     weak var delegate: SIPServiceDelegate?
 
     private let monitor = NWPathMonitor()
-    private let monitorQueue = DispatchQueue(label: "de.limtec.sipphone.network")
+    private let monitorQueue = DispatchQueue(label: "de.limtec.siptray.network")
     private let diagnostics = DiagnosticsLogger()
     private let systemAudioRouteController = SystemAudioRouteController()
 
@@ -147,6 +147,7 @@ final class PJSIPSIPService: SIPServiceProtocol {
     private var activeCallsByUUID: [UUID: Int32] = [:]
     private var callIDToIncomingUUID: [Int32: UUID] = [:]
     private var callIDToActiveUUID: [Int32: UUID] = [:]
+    private var incomingCallSnapshotByUUID: [UUID: IncomingCall] = [:]
     private var handledIncomingCallIDs: Set<Int32> = []
     private var silencedIncomingCallIDs: Set<Int32> = []
     private var ringtonePlayerID: Int32 = spInvalidID
@@ -174,7 +175,7 @@ final class PJSIPSIPService: SIPServiceProtocol {
         monitor.cancel()
         systemAudioRouteController.restoreIfNeeded()
         if didInitializePJSIP {
-            sipphone_pj_register_thread_if_needed("sipphone")
+            siptray_pj_register_thread_if_needed("siptray")
             if ringtonePlayerID != spInvalidID {
                 _ = sp_pjsip_destroy_player(ringtonePlayerID)
             }
@@ -685,19 +686,23 @@ final class PJSIPSIPService: SIPServiceProtocol {
 
     private func registerIncomingCall(callID: Int32) -> IncomingCall {
         if let existingUUID = callIDToIncomingUUID[callID], let info = callInfo(for: callID) {
-            return incomingCall(for: existingUUID, info: info)
+            let incoming = incomingCall(for: existingUUID, info: info)
+            incomingCallSnapshotByUUID[existingUUID] = incoming
+            return incoming
         }
 
         let parsed = parseRemoteIdentity(from: callInfo(for: callID)?.remoteInfo ?? "")
         let incoming = IncomingCall(id: UUID(), displayName: parsed.displayName, number: parsed.number)
         incomingCallsByUUID[incoming.id] = callID
         callIDToIncomingUUID[callID] = incoming.id
+        incomingCallSnapshotByUUID[incoming.id] = incoming
         return incoming
     }
 
     private func unregisterIncomingCall(callID: Int32) {
         if let uuid = callIDToIncomingUUID.removeValue(forKey: callID) {
             incomingCallsByUUID.removeValue(forKey: uuid)
+            incomingCallSnapshotByUUID.removeValue(forKey: uuid)
         }
     }
 
@@ -752,6 +757,7 @@ final class PJSIPSIPService: SIPServiceProtocol {
         var didChangeTrackedCalls = false
 
         if let incomingUUID = callIDToIncomingUUID[callID] {
+            let cachedIncoming = incomingCallSnapshotByUUID[incomingUUID]
             unregisterIncomingCall(callID: callID)
             let wasHandled = handledIncomingCallIDs.remove(callID) != nil
             silencedIncomingCallIDs.remove(callID)
@@ -759,7 +765,7 @@ final class PJSIPSIPService: SIPServiceProtocol {
                 stopRingtone()
             }
             if !wasHandled {
-                let incoming = IncomingCall(id: incomingUUID, displayName: "Unbekannt", number: "")
+                let incoming = cachedIncoming ?? IncomingCall(id: incomingUUID, displayName: "Unbekannt", number: "")
                 delegate?.sipService(self, didMissCall: incoming)
             }
             didChangeTrackedCalls = true
@@ -787,7 +793,9 @@ final class PJSIPSIPService: SIPServiceProtocol {
 
     private func incomingCall(for id: UUID, info: WrappedCallInfo) -> IncomingCall {
         let parsed = parseRemoteIdentity(from: info.remoteInfo)
-        return IncomingCall(id: id, displayName: parsed.displayName, number: parsed.number)
+        let incoming = IncomingCall(id: id, displayName: parsed.displayName, number: parsed.number)
+        incomingCallSnapshotByUUID[id] = incoming
+        return incoming
     }
 
     private func activeCall(for id: UUID, info: WrappedCallInfo) -> ActiveCall? {
@@ -947,7 +955,7 @@ final class PJSIPSIPService: SIPServiceProtocol {
             return ringtoneFileURL
         }
 
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("sipphone-ringtone.wav")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("siptray-ringtone.wav")
         do {
             try makeRingtoneWaveData().write(to: url, options: .atomic)
             ringtoneFileURL = url
@@ -962,7 +970,7 @@ final class PJSIPSIPService: SIPServiceProtocol {
             return ringbackFileURL
         }
 
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("sipphone-ringback.wav")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("siptray-ringback.wav")
         do {
             try makeRingbackWaveData().write(to: url, options: .atomic)
             ringbackFileURL = url

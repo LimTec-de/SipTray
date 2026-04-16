@@ -311,11 +311,11 @@ private struct RecentCallRow: View {
                 .frame(width: 14)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(call.displayName)
+                    Text(call.preferredDisplayName)
                         .font(.subheadline)
                         .lineLimit(1)
-                    if call.number != call.displayName {
-                        Text(call.number)
+                    if let secondaryNumber = call.secondaryDisplayNumber {
+                        Text(secondaryNumber)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)

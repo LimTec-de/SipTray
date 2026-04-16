@@ -594,7 +594,7 @@ final class AppState: ObservableObject {
                         if granted {
                             self.startMicrophoneLoopbackNow()
                         } else {
-                            self.microphoneLoopbackStatus = "Mikrofonzugriff wurde nicht erlaubt. Bitte in Systemeinstellungen > Datenschutz > Mikrofon fuer SIPPhone aktivieren."
+                            self.microphoneLoopbackStatus = "Mikrofonzugriff wurde nicht erlaubt. Bitte in Systemeinstellungen > Datenschutz > Mikrofon fuer SipTray aktivieren."
                             self.openMicrophonePrivacySettings()
                         }
                     }
@@ -1045,16 +1045,8 @@ final class AppState: ObservableObject {
 
     private static func sanitizeRecentCallRecord(_ record: CallRecord) -> CallRecord {
         var sanitized = record
-        let trimmedDisplayName = sanitized.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedNumber = sanitized.number.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if trimmedDisplayName.isEmpty || (trimmedDisplayName == "Unbekannt" && !trimmedNumber.isEmpty) {
-            sanitized.displayName = trimmedNumber.isEmpty ? "Unbekannt" : trimmedNumber
-        } else {
-            sanitized.displayName = trimmedDisplayName
-        }
-
-        sanitized.number = trimmedNumber
+        sanitized.displayName = sanitized.preferredDisplayName
+        sanitized.number = sanitized.number.trimmingCharacters(in: .whitespacesAndNewlines)
         return sanitized
     }
 

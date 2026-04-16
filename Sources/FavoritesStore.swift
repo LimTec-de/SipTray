@@ -7,7 +7,7 @@ final class FavoritesStore {
 
     init() {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let directory = appSupport.appendingPathComponent("SIPPhone", isDirectory: true)
+        let directory = appSupport.appendingPathComponent("SipTray", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         fileURL = directory.appendingPathComponent("favorites.json")
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

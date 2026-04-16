@@ -9,7 +9,7 @@ final class MicrophoneLoopbackService {
         var errorDescription: String? {
             switch self {
             case .microphonePermissionDenied:
-                return "Mikrofonzugriff wurde nicht erlaubt. Bitte in Systemeinstellungen > Datenschutz > Mikrofon fuer SIPPhone aktivieren."
+                return "Mikrofonzugriff wurde nicht erlaubt. Bitte in Systemeinstellungen > Datenschutz > Mikrofon fuer SipTray aktivieren."
             case .noInputDevice:
                 return "Kein Mikrofon verfuegbar."
             }

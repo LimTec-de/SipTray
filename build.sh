@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
-APP_NAME="SIPPhone"
+APP_NAME="SipTray"
 BUILD_CONFIGURATION="${BUILD_CONFIGURATION:-release}"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/Applications}"
 BUNDLE_DIR="$ROOT_DIR/.build/${APP_NAME}.app"
@@ -148,15 +148,15 @@ cat > "$PLIST_PATH" <<'EOF'
     <key>CFBundleDevelopmentRegion</key>
     <string>de</string>
     <key>CFBundleExecutable</key>
-    <string>SIPPhone</string>
+    <string>SipTray</string>
     <key>CFBundleIdentifier</key>
-    <string>de.limtec.sipphone</string>
+    <string>de.limtec.siptray</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleIconFile</key>
-    <string>SIPPhone</string>
+    <string>SipTray</string>
     <key>CFBundleName</key>
-    <string>SIPPhone</string>
+    <string>SipTray</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

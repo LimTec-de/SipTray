@@ -118,9 +118,38 @@ struct CallRecord: Codable, Identifiable, Equatable {
         return items.joined(separator: " · ")
     }
 
+    var preferredDisplayName: String {
+        let trimmedDisplayName = trimmed(displayName)
+        let trimmedNumber = trimmed(number)
+
+        if let trimmedDisplayName, !Self.isUnknownPlaceholder(trimmedDisplayName) {
+            return trimmedDisplayName
+        }
+
+        if let trimmedNumber {
+            return trimmedNumber
+        }
+
+        return "Unbekannt"
+    }
+
+    var secondaryDisplayNumber: String? {
+        guard let trimmedNumber = trimmed(number), trimmedNumber != preferredDisplayName else {
+            return nil
+        }
+        return trimmedNumber
+    }
+
     private func trimmed(_ value: String) -> String? {
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return normalized.isEmpty ? nil : normalized
+    }
+
+    private static func isUnknownPlaceholder(_ value: String) -> Bool {
+        let normalized = value
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized == "unbekannt" || normalized == "unknown"
     }
 
     private func durationString(_ interval: TimeInterval) -> String? {
