@@ -175,7 +175,7 @@ final class PJSIPSIPService: SIPServiceProtocol {
         monitor.cancel()
         systemAudioRouteController.restoreIfNeeded()
         if didInitializePJSIP {
-            siptray_pj_register_thread_if_needed("siptray")
+            sipphone_pj_register_thread_if_needed("siptray")
             if ringtonePlayerID != spInvalidID {
                 _ = sp_pjsip_destroy_player(ringtonePlayerID)
             }
