@@ -228,6 +228,7 @@ struct AppSettings: Codable, Equatable {
     var launchAtLogin = false
     var transcriptionEnabled = false
     var geminiAPIKey = ""
+    var useGeminiAPIKeyFromHomeEnv = false
     var geminiModelName = "gemini-3.1-flash-lite-preview"
     var numberRewritePattern = "^\\+"
     var numberRewriteReplacement = "00"

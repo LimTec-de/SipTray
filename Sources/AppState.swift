@@ -257,8 +257,26 @@ final class AppState: ObservableObject {
         settings.geminiAPIKey = value
     }
 
+    func setUseGeminiAPIKeyFromHomeEnv(_ enabled: Bool) {
+        settings.useGeminiAPIKeyFromHomeEnv = enabled
+    }
+
     func setGeminiModelName(_ value: String) {
         settings.geminiModelName = value
+    }
+
+    var hasGeminiAPIKeyInHomeEnv: Bool {
+        homeEnvGeminiAPIKey() != nil
+    }
+
+    var geminiAPIKeySourceDescription: String {
+        if settings.useGeminiAPIKeyFromHomeEnv {
+            return hasGeminiAPIKeyInHomeEnv
+                ? "GEMINI_API_KEY aus ~/.env wird verwendet."
+                : "In ~/.env wurde kein GEMINI_API_KEY gefunden."
+        }
+
+        return "Optional: lokaler Schlüssel aus ~/.env statt gespeichertem Wert."
     }
 
     func setNumberRewritePattern(_ value: String) {
@@ -1204,7 +1222,7 @@ extension AppState: SIPServiceDelegate {
     }
 
     private func postProcessedTranscriptIfNeeded(rawTranscript: String, recordID: UUID) async -> String? {
-        let apiKey = settings.geminiAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let apiKey = effectiveGeminiAPIKey()
         let modelName = settings.geminiModelName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !apiKey.isEmpty else { return nil }
 
@@ -1244,6 +1262,49 @@ extension AppState: SIPServiceDelegate {
             caller: caller,
             callee: callee
         )
+    }
+
+    private func effectiveGeminiAPIKey() -> String {
+        if settings.useGeminiAPIKeyFromHomeEnv,
+           let envKey = homeEnvGeminiAPIKey() {
+            return envKey
+        }
+
+        return settings.geminiAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func homeEnvGeminiAPIKey() -> String? {
+        let envURL = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".env")
+        guard let contents = try? String(contentsOf: envURL, encoding: .utf8) else {
+            return nil
+        }
+
+        for rawLine in contents.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty, !line.hasPrefix("#") else { continue }
+
+            let assignment = line.hasPrefix("export ")
+                ? String(line.dropFirst("export ".count))
+                : line
+
+            guard assignment.hasPrefix("GEMINI_API_KEY=") else { continue }
+
+            var value = String(assignment.dropFirst("GEMINI_API_KEY=".count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if value.hasPrefix("\""), value.hasSuffix("\""), value.count >= 2 {
+                value.removeFirst()
+                value.removeLast()
+            } else if value.hasPrefix("'"), value.hasSuffix("'"), value.count >= 2 {
+                value.removeFirst()
+                value.removeLast()
+            }
+
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        return nil
     }
 
     func sipService(_ service: SIPServiceProtocol, didReceiveIncomingCall call: IncomingCall) {

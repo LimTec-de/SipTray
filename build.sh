@@ -10,6 +10,7 @@ BUNDLE_DIR="$ROOT_DIR/.build/${APP_NAME}.app"
 CONTENTS_DIR="$BUNDLE_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
+FRAMEWORKS_DIR="$CONTENTS_DIR/Frameworks"
 PLIST_PATH="$CONTENTS_DIR/Info.plist"
 ICONSET_DIR="$ROOT_DIR/.build/${APP_NAME}.iconset"
 ICON_PATH="$RESOURCES_DIR/${APP_NAME}.icns"
@@ -141,7 +142,7 @@ fi
 
 echo "Creating app bundle..."
 rm -rf "$BUNDLE_DIR"
-mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
+mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$FRAMEWORKS_DIR"
 cp "$EXECUTABLE_PATH" "$MACOS_DIR/$APP_NAME"
 generate_icon
 cp "$ROOT_DIR/.build/${APP_NAME}.icns" "$ICON_PATH"
@@ -191,6 +192,22 @@ cat > "$PLIST_PATH" <<'EOF'
 </dict>
 </plist>
 EOF
+
+SPARKLE_PATH="$(
+  find "$ROOT_DIR/.build" -name "Sparkle.framework" -type d | head -n 1
+)"
+
+if [[ -z "$SPARKLE_PATH" ]]; then
+  echo "Sparkle framework not found in .build" >&2
+  exit 1
+fi
+
+ditto --rsrc "$SPARKLE_PATH" "$FRAMEWORKS_DIR/Sparkle.framework"
+
+/usr/bin/install_name_tool \
+  -change "@rpath/Sparkle.framework/Versions/B/Sparkle" \
+  "@executable_path/../Frameworks/Sparkle.framework/Versions/B/Sparkle" \
+  "$MACOS_DIR/$APP_NAME"
 
 mkdir -p "$INSTALL_DIR"
 echo "Installing to $TARGET_APP..."

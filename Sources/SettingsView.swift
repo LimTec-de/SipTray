@@ -181,6 +181,22 @@ struct SettingsView: View {
                     )
                 )
 
+                Toggle(
+                    "GEMINI_API_KEY aus ~/.env verwenden",
+                    isOn: Binding(
+                        get: { state.settings.useGeminiAPIKeyFromHomeEnv },
+                        set: { state.setUseGeminiAPIKeyFromHomeEnv($0) }
+                    )
+                )
+
+                Text(state.geminiAPIKeySourceDescription)
+                    .font(.caption)
+                    .foregroundStyle(
+                        state.settings.useGeminiAPIKeyFromHomeEnv && !state.hasGeminiAPIKeyInHomeEnv
+                            ? Color.orange
+                            : Color.secondary
+                    )
+
                 TextField(
                     "Gemini Modell",
                     text: Binding(
