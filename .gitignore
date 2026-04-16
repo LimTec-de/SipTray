@@ -70,6 +70,8 @@ xcuserdata/
 *.p12
 *.mobileprovision
 *.certSigningRequest
+!Sources/SipTray.entitlements
+!Sources/sparkle.entitlements
 
 # IDE
 .idea/
