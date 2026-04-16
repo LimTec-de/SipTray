@@ -16,6 +16,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        submodules: recursive
 
     - name: Get Version from Info.plist
       id: get_version
@@ -47,6 +49,7 @@ jobs:
       if: steps.pjsip-cache.outputs.cache-hit != 'true'
       run: |
         cd Vendor/pjproject
+        test -x ./configure
         make distclean >/dev/null 2>&1 || true
         export MACOSX_DEPLOYMENT_TARGET=13.0
         ./configure \

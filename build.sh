@@ -28,6 +28,11 @@ prepare_pjsip() {
     echo "Preparing PJPROJECT..."
     (
       cd "$PJSIP_DIR"
+      if [[ ! -x ./configure ]]; then
+        echo "Missing $PJSIP_DIR/configure" >&2
+        echo "Initialize vendor submodules before building: git submodule update --init --recursive" >&2
+        exit 1
+      fi
       make distclean >/dev/null 2>&1 || true
       export MACOSX_DEPLOYMENT_TARGET=13.0
       ./configure \
@@ -217,4 +222,3 @@ echo "Installed: $TARGET_APP"
 echo "Run with: open \"$TARGET_APP\""
 pkill -f "$TARGET_APP/Contents/MacOS/$APP_NAME" || true
 open "$TARGET_APP"
-

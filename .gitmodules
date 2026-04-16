@@ -1,0 +1,6 @@
+[submodule "Vendor/pjproject"]
+	path = Vendor/pjproject
+	url = https://github.com/pjsip/pjproject.git
+[submodule "Vendor/linphone-sdk-swift-macos"]
+	path = Vendor/linphone-sdk-swift-macos
+	url = https://gitlab.linphone.org/BC/public/linphone-sdk-swift-macos.git
