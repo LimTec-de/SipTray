@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>de</string>
+    <key>CFBundleExecutable</key>
+    <string>SipTray</string>
+    <key>CFBundleIdentifier</key>
+    <string>de.limtec.siptray</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleIconFile</key>
+    <string>SipTray</string>
+    <key>CFBundleName</key>
+    <string>SipTray</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Das Mikrofon wird fuer SIP-Telefonate verwendet.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Die Spracherkennung wird fuer lokale Transkription von Gespraechen verwendet.</string>
+    <key>SUFeedURL</key>
+    <string>https://github.com/LimTec-de/SipTray/releases/latest/download/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>VKlDR2y2k9uVKl24bA9IFKSEzLtTdQge+GS42mdl4Hc=</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUAutomaticallyUpdate</key>
+    <true/>
+    <key>SUScheduledCheckInterval</key>
+    <integer>86400</integer>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>Telefon</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>tel</string>
+            </array>
+        </dict>
+    </array>
+</dict>
+</plist>

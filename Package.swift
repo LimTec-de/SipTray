@@ -13,12 +13,15 @@ let pjsipLibrarySearchPaths = [
 ]
 
 let package = Package(
-    name: "SIPPhone",
+    name: "SipTray",
     platforms: [
         .macOS(.v13)
     ],
     products: [
-        .executable(name: "SIPPhone", targets: ["SIPPhone"])
+        .executable(name: "SipTray", targets: ["SipTray"])
+    ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.5.1")
     ],
     targets: [
         .target(
@@ -36,9 +39,10 @@ let package = Package(
             ]
         ),
         .executableTarget(
-            name: "SIPPhone",
+            name: "SipTray",
             dependencies: [
-                "CPJSIP"
+                "CPJSIP",
+                .product(name: "Sparkle", package: "Sparkle"),
             ],
             path: "Sources",
             swiftSettings: [
@@ -74,7 +78,8 @@ let package = Package(
                 .linkedFramework("AVFoundation"),
                 .linkedFramework("Foundation"),
                 .linkedFramework("AppKit"),
-                .linkedFramework("Speech")
+                .linkedFramework("Speech"),
+                .linkedFramework("Sparkle"),
             ]
         )
     ]

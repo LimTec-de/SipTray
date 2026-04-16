@@ -1,7 +1,8 @@
 import SwiftUI
 
 @main
-struct SIPPhoneApp: App {
+struct SipTrayApp: App {
+    @NSApplicationDelegateAdaptor(SipTrayAppDelegate.self) private var appDelegate
     @StateObject private var coordinator = AppCoordinator()
 
     var body: some Scene {
