@@ -97,6 +97,5 @@ Vendor/**/.build/
 Vendor/**/*.o
 Vendor/**/*.a
 Vendor/**/.codex-local-build-stamp
-Vendor/linphone-sdk-swift-macos/
 
 .fuse_hidden*
