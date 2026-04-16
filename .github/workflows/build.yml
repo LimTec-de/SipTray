@@ -57,7 +57,7 @@ jobs:
           echo "Missing Vendor/pjproject/configure after checkout" >&2
           exit 1
         fi
-        ../Scripts/patch_pjproject.sh .
+        ../../Scripts/patch_pjproject.sh .
         make distclean >/dev/null 2>&1 || true
         export MACOSX_DEPLOYMENT_TARGET=13.0
         ./configure \
