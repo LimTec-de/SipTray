@@ -4,6 +4,7 @@ import Combine
 import CoreServices
 import Foundation
 import Speech
+import Sparkle
 
 private func transcribePreparedURLBackground(
     _ fileURL: URL?,
@@ -637,6 +638,10 @@ final class AppState: ObservableObject {
             return
         }
         NSWorkspace.shared.open(url)
+    }
+
+    func checkForUpdates() {
+        SipTrayAppDelegate.shared?.updater?.checkForUpdates()
     }
 
     func requestSpeechRecognitionAccessIfNeeded() {

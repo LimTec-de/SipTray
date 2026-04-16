@@ -222,6 +222,10 @@ struct SettingsView: View {
                         .foregroundStyle(state.isDefaultPhoneApp ? Color.green : Color.secondary)
                 }
 
+                Button("Auf Updates prüfen") {
+                    state.checkForUpdates()
+                }
+
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Rufnummern-Umschreibung (Regexp)")
                         .font(.subheadline.weight(.semibold))
