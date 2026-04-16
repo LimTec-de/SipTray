@@ -105,6 +105,7 @@ jobs:
       run: |
         APP_NAME="SipTray"
         BUNDLE_DIR="${APP_NAME}.app"
+        ENTITLEMENTS_PATH="$(pwd)/Sources/SipTray.entitlements"
 
         rm -rf "$BUNDLE_DIR"
         mkdir -p "$BUNDLE_DIR/Contents/MacOS" "$BUNDLE_DIR/Contents/Resources" "$BUNDLE_DIR/Contents/Frameworks"
@@ -156,9 +157,10 @@ jobs:
           "$BUNDLE_DIR/Contents/Frameworks/Sparkle.framework"
 
         # Sign with hardened runtime and entitlements
+        plutil -lint "$ENTITLEMENTS_PATH"
         codesign --force \
           --options runtime \
-          --entitlements Sources/SipTray.entitlements \
+          --entitlements "$ENTITLEMENTS_PATH" \
           --sign "Developer ID Application: LimTec GmbH (${{ secrets.TEAM_ID }})" \
           --timestamp \
           --deep \
