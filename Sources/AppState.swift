@@ -6,19 +6,6 @@ import Foundation
 import Speech
 import Sparkle
 
-private func transcribePreparedURLBackground(
-    _ fileURL: URL?,
-    enabled: Bool,
-    service: CallTranscriptionService
-) async -> String? {
-    guard let fileURL else { return nil }
-    return await withCheckedContinuation { continuation in
-        service.transcribeIfNeeded(fileURL: fileURL, enabled: enabled) { text in
-            continuation.resume(returning: text)
-        }
-    }
-}
-
 private func transcribePreparedSegmentsBackground(
     _ fileURL: URL?,
     speaker: CallTranscriptionService.TranscriptSpeaker,
@@ -27,14 +14,21 @@ private func transcribePreparedSegmentsBackground(
 ) async -> [CallTranscriptionService.TranscriptSegment]? {
     guard let fileURL else { return nil }
     return await withCheckedContinuation { continuation in
-        service.transcribeSegmentsIfNeeded(fileURL: fileURL, speaker: speaker, enabled: enabled) { segments in
-            continuation.resume(returning: segments)
+        DispatchQueue.main.async {
+            service.transcribeSegmentsIfNeeded(fileURL: fileURL, speaker: speaker, enabled: enabled) { segments in
+                continuation.resume(returning: segments)
+            }
         }
     }
 }
 
 @MainActor
 final class AppState: ObservableObject {
+    @Published var transcriptionStatus = ""
+    @Published var settingsStorageError = ""
+    @Published var homeEnvKeyNames: Set<String> = []
+    private var transcriptionJobs: Set<UUID> = []
+    private var isRecoveringTranscriptions = false
     @Published var dialedNumber = ""
     @Published var favorites: [Contact]
     @Published var recentCalls: [CallRecord]
@@ -70,7 +64,6 @@ final class AppState: ObservableObject {
     private let audioDeviceService: AudioDeviceService
     private let launchAtLoginService: LaunchAtLoginService
     private let transcriptionService: CallTranscriptionService
-    private let geminiTranscriptPostProcessor = GeminiTranscriptPostProcessor()
     private let microphoneLoopbackService: MicrophoneLoopbackService
     private let sipService: SIPServiceProtocol
     private var cancellables: Set<AnyCancellable> = []
@@ -100,6 +93,7 @@ final class AppState: ObservableObject {
         let loadedRecentCalls = Self.trimmedRecentCalls(callHistoryStore.load())
         let loadedFavorites = favoritesStore.load()
         self.settings = loadedSettings
+        self.settingsStorageError = settingsStore.loadError?.localizedDescription ?? ""
         self.recentCalls = Self.applyingFavorites(loadedFavorites, to: loadedRecentCalls)
         self.favorites = loadedFavorites
         self.microphoneLoopbackService.onLevelsChanged = { [weak self] inputLevel, outputLevel in
@@ -113,6 +107,7 @@ final class AppState: ObservableObject {
         }
 
         self.sipService.delegate = self
+        refreshHomeEnvKeys()
         syncLaunchAtLoginSetting()
         bindPersistence()
         requestMicrophoneAccessIfNeeded()
@@ -167,7 +162,7 @@ final class AppState: ObservableObject {
         )
         callRecordIDsByActiveCallID[newCall.id] = record.id
         sipService.associateRecordingRecord(record.id, with: newCall.id)
-        transcriptionService.startIfNeeded(for: newCall.id, enabled: settings.transcriptionEnabled)
+        transcriptionService.startIfNeeded(for: newCall.id, enabled: settings.transcriptionEnabled && selectedTranscriptionProvider == .apple)
         refreshPJSIPMeterPolling()
         clearDialedNumber()
     }
@@ -244,7 +239,9 @@ final class AppState: ObservableObject {
         guard settings.transcriptionEnabled != enabled else { return }
         settings.transcriptionEnabled = enabled
         if enabled {
-            requestSpeechRecognitionAccessIfNeeded()
+            if selectedTranscriptionProvider == .apple {
+                requestSpeechRecognitionAccessIfNeeded()
+            }
             recoverPendingTranscriptions()
         }
         sipService.configureTranscription(
@@ -253,30 +250,17 @@ final class AppState: ObservableObject {
         )
     }
 
-    func setGeminiAPIKey(_ value: String) {
-        settings.geminiAPIKey = value
+    var selectedTranscriptionProvider: TranscriptionProvider {
+        settings.transcriptionProvider ?? .apple
     }
 
-    func setUseGeminiAPIKeyFromHomeEnv(_ enabled: Bool) {
-        settings.useGeminiAPIKeyFromHomeEnv = enabled
+    func refreshHomeEnvKeys() {
+        homeEnvKeyNames = Set(["GEMINI_API_KEY", "OPENAI_API_KEY"].filter { HomeEnv.key($0) != nil })
     }
 
-    func setGeminiModelName(_ value: String) {
-        settings.geminiModelName = value
-    }
-
-    var hasGeminiAPIKeyInHomeEnv: Bool {
-        homeEnvGeminiAPIKey() != nil
-    }
-
-    var geminiAPIKeySourceDescription: String {
-        if settings.useGeminiAPIKeyFromHomeEnv {
-            return hasGeminiAPIKeyInHomeEnv
-                ? "GEMINI_API_KEY aus ~/.env wird verwendet."
-                : "In ~/.env wurde kein GEMINI_API_KEY gefunden."
-        }
-
-        return "Optional: lokaler Schlüssel aus ~/.env statt gespeichertem Wert."
+    func retryTranscriptions() {
+        refreshHomeEnvKeys()
+        recoverPendingTranscriptions()
     }
 
     func setNumberRewritePattern(_ value: String) {
@@ -693,7 +677,7 @@ final class AppState: ObservableObject {
         )
         callRecordIDsByActiveCallID[acceptedCall.id] = record.id
         sipService.associateRecordingRecord(record.id, with: acceptedCall.id)
-        transcriptionService.startIfNeeded(for: acceptedCall.id, enabled: settings.transcriptionEnabled)
+        transcriptionService.startIfNeeded(for: acceptedCall.id, enabled: settings.transcriptionEnabled && selectedTranscriptionProvider == .apple)
         refreshPJSIPMeterPolling()
         self.incomingCall = nil
         isIncomingCallModalVisible = false
@@ -724,7 +708,6 @@ final class AppState: ObservableObject {
         let loadedRecentCalls = Self.trimmedRecentCalls(callHistoryStore.load())
         favorites = loadedFavorites
         recentCalls = Self.applyingFavorites(loadedFavorites, to: loadedRecentCalls)
-        recoverPendingTranscriptions()
     }
 
     func startConsultation() {
@@ -743,7 +726,7 @@ final class AppState: ObservableObject {
         )
         callRecordIDsByActiveCallID[newCall.id] = record.id
         sipService.associateRecordingRecord(record.id, with: newCall.id)
-        transcriptionService.startIfNeeded(for: newCall.id, enabled: settings.transcriptionEnabled)
+        transcriptionService.startIfNeeded(for: newCall.id, enabled: settings.transcriptionEnabled && selectedTranscriptionProvider == .apple)
         refreshPJSIPMeterPolling()
         clearDialedNumber()
     }
@@ -809,7 +792,13 @@ final class AppState: ObservableObject {
         $settings
             .dropFirst()
             .sink { [weak self] settings in
-                self?.settingsStore.save(settings)
+                guard let self else { return }
+                do {
+                    try self.settingsStore.save(settings)
+                    self.settingsStorageError = ""
+                } catch {
+                    self.settingsStorageError = error.localizedDescription
+                }
             }
             .store(in: &cancellables)
 
@@ -894,42 +883,19 @@ final class AppState: ObservableObject {
     }
 
     private func recoverPendingTranscriptions() {
-        guard settings.transcriptionEnabled else { return }
-        for record in recentCallsLast7Days where record.transcription?.isEmpty != false {
-            let recordID = record.id
-            let service = transcriptionService
-            let enabled = settings.transcriptionEnabled
-            Task.detached { [weak self] in
-                guard let self else { return }
-                let shouldProceed = await MainActor.run { () -> Bool in
-                    guard let index = self.recentCalls.firstIndex(where: { $0.id == recordID }) else { return false }
-                    return self.recentCalls[index].transcription?.isEmpty != false
-                }
-                guard shouldProceed else { return }
-
-                let localRawURL = service.recordingURL(for: recordID, speaker: .local)
-                let remoteRawURL = service.recordingURL(for: recordID, speaker: .remote)
-                let preparedLocalURL = FileManager.default.fileExists(atPath: localRawURL.path)
-                    ? service.prepareRecordingFile(localRawURL)
-                    : nil
-                let preparedRemoteURL = FileManager.default.fileExists(atPath: remoteRawURL.path)
-                    ? service.prepareRecordingFile(remoteRawURL)
-                    : nil
-
-                let localText = await transcribePreparedURLBackground(preparedLocalURL, enabled: enabled, service: service)
-                let remoteText = await transcribePreparedURLBackground(preparedRemoteURL, enabled: enabled, service: service)
-                guard let merged = service.mergeTranscript(local: localText, remote: remoteText) else { return }
-                let processed = await self.postProcessedTranscriptIfNeeded(rawTranscript: merged, recordID: recordID) ?? merged
-
-                service.cleanupRecordingArtifacts(
-                    rawFileURLs: [localRawURL, remoteRawURL],
-                    preparedFileURLs: [preparedLocalURL, preparedRemoteURL]
-                )
-
-                await MainActor.run {
-                    guard let latestIndex = self.recentCalls.firstIndex(where: { $0.id == recordID }) else { return }
-                    self.recentCalls[latestIndex].transcription = processed
-                }
+        guard settings.transcriptionEnabled, !isRecoveringTranscriptions else { return }
+        isRecoveringTranscriptions = true
+        // One batch at a time; each record is also protected against duplicate callbacks.
+        Task { [weak self] in
+            guard let self else { return }
+            defer { isRecoveringTranscriptions = false }
+            for record in recentCallsLast7Days where record.transcription?.isEmpty != false {
+                guard !callRecordIDsByActiveCallID.values.contains(record.id) else { continue }
+                let local = transcriptionService.recordingURL(for: record.id, speaker: .local)
+                let remote = transcriptionService.recordingURL(for: record.id, speaker: .remote)
+                guard FileManager.default.fileExists(atPath: local.path),
+                      FileManager.default.fileExists(atPath: remote.path) else { continue }
+                await processRecording(recordID: record.id, local: local, remote: remote)
             }
         }
     }
@@ -1156,155 +1122,68 @@ extension AppState: SIPServiceDelegate {
         localFileURL: URL?,
         remoteFileURL: URL?
     ) {
-        _ = service
-        guard let recordID = resolveTranscriptionRecordID(for: activeCallID) else { return }
-        let service = transcriptionService
-        let enabled = settings.transcriptionEnabled
-        Task.detached { [weak self] in
-            guard let self else { return }
-            try? await Task.sleep(nanoseconds: 500_000_000)
-
-            let preparedLocalURL = localFileURL.flatMap { service.prepareRecordingFile($0) }
-            let preparedRemoteURL = remoteFileURL.flatMap { service.prepareRecordingFile($0) }
-            let localOnsetOffset = preparedLocalURL.map { service.audioOnsetOffset(for: $0) } ?? 0
-            let remoteOnsetOffset = preparedRemoteURL.map { service.audioOnsetOffset(for: $0) } ?? 0
-
-            let localPreparedSegments = await transcribePreparedSegmentsBackground(
-                preparedLocalURL,
-                speaker: .local,
-                enabled: enabled,
-                service: service
-            ) ?? []
-            let remoteSegments = await transcribePreparedSegmentsBackground(
-                preparedRemoteURL,
-                speaker: .remote,
-                enabled: enabled,
-                service: service
-            ) ?? []
-            let shiftedLocalSegments = (localSegments ?? localPreparedSegments).map {
-                CallTranscriptionService.TranscriptSegment(
-                    speaker: $0.speaker,
-                    timestamp: $0.timestamp + localOnsetOffset,
-                    duration: $0.duration,
-                    text: $0.text
-                )
-            }
-            let shiftedRemoteSegments = remoteSegments.map {
-                CallTranscriptionService.TranscriptSegment(
-                    speaker: $0.speaker,
-                    timestamp: $0.timestamp + remoteOnsetOffset,
-                    duration: $0.duration,
-                    text: $0.text
-                )
-            }
-            guard let merged = service.mergeSegments(local: shiftedLocalSegments, remote: shiftedRemoteSegments) else { return }
-            let processed = await self.postProcessedTranscriptIfNeeded(rawTranscript: merged, recordID: recordID) ?? merged
-
-            service.cleanupRecordingArtifacts(
-                rawFileURLs: [localFileURL, remoteFileURL],
-                preparedFileURLs: [preparedLocalURL, preparedRemoteURL]
-            )
-
-            await MainActor.run {
-                guard let index = self.recentCalls.firstIndex(where: { $0.id == recordID }) else { return }
-                self.recentCalls[index].transcription = processed
-            }
+        guard settings.transcriptionEnabled,
+              let recordID = callRecordIDsByActiveCallID.removeValue(forKey: activeCallID) else { return }
+        Task { [weak self] in
+            await self?.processRecording(recordID: recordID, local: localFileURL, remote: remoteFileURL)
         }
     }
 
-    private func resolveTranscriptionRecordID(for activeCallID: UUID) -> UUID? {
-        if let recordID = callRecordIDsByActiveCallID.removeValue(forKey: activeCallID) {
-            return recordID
-        }
-
-        let cutoff = Date().addingTimeInterval(-15 * 60)
-        return recentCalls.first(where: { $0.transcription == nil && $0.date >= cutoff })?.id
-    }
-
-    private func postProcessedTranscriptIfNeeded(rawTranscript: String, recordID: UUID) async -> String? {
-        let apiKey = effectiveGeminiAPIKey()
-        let modelName = settings.geminiModelName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !apiKey.isEmpty else { return nil }
-
-        let context = await MainActor.run { () -> (direction: CallRecord.Direction, date: Date, remoteName: String, remoteNumber: String)? in
-            guard let record = recentCalls.first(where: { $0.id == recordID }) else { return nil }
-            return (record.direction, record.date, record.displayName, record.number)
-        }
-        guard let context else { return nil }
-
-        let localParticipant = TranscriptParticipant(
-            name: settings.sip.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? settings.sip.username
-                : settings.sip.displayName,
-            number: settings.sip.username
-        )
-        let remoteParticipant = TranscriptParticipant(
-            name: context.remoteName,
-            number: context.remoteNumber
-        )
-
-        let caller: TranscriptParticipant
-        let callee: TranscriptParticipant
-        switch context.direction {
-        case .outgoing:
-            caller = localParticipant
-            callee = remoteParticipant
-        case .incoming, .missed:
-            caller = remoteParticipant
-            callee = localParticipant
-        }
-
-        return await geminiTranscriptPostProcessor.process(
-            transcript: rawTranscript,
-            apiKey: apiKey,
-            modelName: modelName,
-            callDate: context.date,
-            caller: caller,
-            callee: callee
-        )
-    }
-
-    private func effectiveGeminiAPIKey() -> String {
-        if settings.useGeminiAPIKeyFromHomeEnv,
-           let envKey = homeEnvGeminiAPIKey() {
-            return envKey
-        }
-
-        return settings.geminiAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func homeEnvGeminiAPIKey() -> String? {
-        let envURL = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".env")
-        guard let contents = try? String(contentsOf: envURL, encoding: .utf8) else {
-            return nil
-        }
-
-        for rawLine in contents.components(separatedBy: .newlines) {
-            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !line.isEmpty, !line.hasPrefix("#") else { continue }
-
-            let assignment = line.hasPrefix("export ")
-                ? String(line.dropFirst("export ".count))
-                : line
-
-            guard assignment.hasPrefix("GEMINI_API_KEY=") else { continue }
-
-            var value = String(assignment.dropFirst("GEMINI_API_KEY=".count))
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-
-            if value.hasPrefix("\""), value.hasSuffix("\""), value.count >= 2 {
-                value.removeFirst()
-                value.removeLast()
-            } else if value.hasPrefix("'"), value.hasSuffix("'"), value.count >= 2 {
-                value.removeFirst()
-                value.removeLast()
+    private func processRecording(recordID: UUID, local: URL?, remote: URL?) async {
+        guard settings.transcriptionEnabled, !transcriptionJobs.contains(recordID),
+              recentCalls.contains(where: { $0.id == recordID && $0.transcription?.isEmpty != false }) else { return }
+        transcriptionJobs.insert(recordID)
+        defer { transcriptionJobs.remove(recordID) }
+        let provider = selectedTranscriptionProvider
+        transcriptionStatus = "\(provider.title): Aufnahme wird verarbeitet …"
+        do {
+            guard let local, let remote else {
+                throw TranscriptionFailure(message: "Eine Gesprächsspur fehlt. Transkription nicht vollständig.")
             }
-
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
+            let key: String
+            if provider != .apple {
+                let useEnv = provider == .gemini ? settings.useGeminiAPIKeyFromHomeEnv : settings.useOpenAIKeyFromHomeEnv == true
+                guard useEnv, let found = HomeEnv.key(provider.keyName) else {
+                    throw TranscriptionFailure(message: "\(provider.keyName) aus ~/.env auswählen; ein nichtleerer Schlüssel muss vorhanden sein.")
+                }
+                key = found
+            } else { key = "" }
+            let service = transcriptionService
+            let prepared = await Task.detached {
+                (service.prepareRecordingFile(local), service.prepareRecordingFile(remote))
+            }.value
+            guard let localURL = prepared.0, let remoteURL = prepared.1 else {
+                throw TranscriptionFailure(message: "Die Aufnahme konnte nicht gelesen werden.")
+            }
+            let localSegments: [CallTranscriptionService.TranscriptSegment]
+            let remoteSegments: [CallTranscriptionService.TranscriptSegment]
+            if provider == .apple {
+                guard let first = await transcribePreparedSegmentsBackground(localURL, speaker: .local, enabled: true, service: service),
+                      let second = await transcribePreparedSegmentsBackground(remoteURL, speaker: .remote, enabled: true, service: service) else {
+                    throw TranscriptionFailure(message: "Apple Spracherkennung fehlgeschlagen oder Zeitlimit erreicht.")
+                }
+                localSegments = first
+                remoteSegments = second
+            } else {
+                let client = CloudTranscription(provider: provider, apiKey: key)
+                let result = try await Task.detached {
+                    let first = try await client.transcribe(localURL, speaker: .local)
+                    let second = try await client.transcribe(remoteURL, speaker: .remote)
+                    return (first, second)
+                }.value
+                localSegments = result.0
+                remoteSegments = result.1
+            }
+            guard let merged = service.mergeSegments(local: localSegments, remote: remoteSegments),
+                  let index = recentCalls.firstIndex(where: { $0.id == recordID }) else {
+                throw TranscriptionFailure(message: "Keine Sprache erkannt.")
+            }
+            recentCalls[index].transcription = merged
+            // Keep recordings until the existing seven-day retention expires, including on errors.
+            transcriptionStatus = "\(provider.title): Transkription abgeschlossen."
+        } catch {
+            transcriptionStatus = "\(provider.title): \(error.localizedDescription) Aufnahme bleibt für einen erneuten Versuch erhalten."
         }
-
-        return nil
     }
 
     func sipService(_ service: SIPServiceProtocol, didReceiveIncomingCall call: IncomingCall) {

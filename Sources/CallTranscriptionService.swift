@@ -165,7 +165,6 @@ final class CallTranscriptionService: @unchecked Sendable {
             self.activeRecognizers[taskKey] = recognizer
 
             var didComplete = false
-            var latestSegments: [TranscriptSegment] = []
             self.timeoutWorkItems[taskKey]?.cancel()
             let timeoutWorkItem = DispatchWorkItem { [weak self] in
                 guard let self else { return }
@@ -175,37 +174,35 @@ final class CallTranscriptionService: @unchecked Sendable {
                 self.activeTasks.removeValue(forKey: taskKey)
                 self.activeRecognizers.removeValue(forKey: taskKey)
                 self.timeoutWorkItems.removeValue(forKey: taskKey)
-                completion(latestSegments.isEmpty ? nil : latestSegments)
+                completion(nil)
             }
             self.timeoutWorkItems[taskKey] = timeoutWorkItem
-            DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: timeoutWorkItem)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 180, execute: timeoutWorkItem)
 
             let task = recognizer.recognitionTask(with: request) { [weak self] result, error in
-                guard let self else { return }
-                guard !didComplete else { return }
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    guard !didComplete else { return }
 
-                if let result {
-                    latestSegments = Self.convertSegments(result.bestTranscription.segments, speaker: speaker)
-                }
+                    if let result, result.isFinal {
+                        didComplete = true
+                        self.timeoutWorkItems[taskKey]?.cancel()
+                        self.timeoutWorkItems.removeValue(forKey: taskKey)
+                        self.activeTasks.removeValue(forKey: taskKey)
+                        self.activeRecognizers.removeValue(forKey: taskKey)
+                        let finalSegments = Self.convertSegments(result.bestTranscription.segments, speaker: speaker)
+                        completion(finalSegments)
+                        return
+                    }
 
-                if let result, result.isFinal {
-                    didComplete = true
-                    self.timeoutWorkItems[taskKey]?.cancel()
-                    self.timeoutWorkItems.removeValue(forKey: taskKey)
-                    self.activeTasks.removeValue(forKey: taskKey)
-                    self.activeRecognizers.removeValue(forKey: taskKey)
-                    let finalSegments = Self.convertSegments(result.bestTranscription.segments, speaker: speaker)
-                    completion(finalSegments.isEmpty ? latestSegments : finalSegments)
-                    return
-                }
-
-                if error != nil {
-                    didComplete = true
-                    self.timeoutWorkItems[taskKey]?.cancel()
-                    self.timeoutWorkItems.removeValue(forKey: taskKey)
-                    self.activeTasks.removeValue(forKey: taskKey)
-                    self.activeRecognizers.removeValue(forKey: taskKey)
-                    completion(latestSegments.isEmpty ? nil : latestSegments)
+                    if error != nil {
+                        didComplete = true
+                        self.timeoutWorkItems[taskKey]?.cancel()
+                        self.timeoutWorkItems.removeValue(forKey: taskKey)
+                        self.activeTasks.removeValue(forKey: taskKey)
+                        self.activeRecognizers.removeValue(forKey: taskKey)
+                        completion(nil)
+                    }
                 }
             }
             self.activeTasks[taskKey]?.cancel()

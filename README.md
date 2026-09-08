@@ -4,7 +4,18 @@ SIPPhone ist ein natives macOS-SIP-Phone in Swift mit Menubar-Fokus. Die App leb
 
 Technisch basiert das Projekt auf einer nativen SwiftUI-/AppKit-App mit einer C-Bridge zu PJSIP.
 
-## Build
+## Lizenzinformationen
+
+Drittanbieter, Lizenztexte und offene Freigabeanforderungen stehen in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Die App-Bundles enthalten die
+Originaltexte unter `Contents/Resources/Licenses`. Die Projektlizenz ist noch
+nicht festgelegt. G.722 bleibt aktiv; G.722.1/C wird nicht gebaut oder verlinkt.
+
+SIP-Passwoerter werden im macOS-Schluesselbund gespeichert. Vorhandene
+Klartextpasswoerter in `settings.json` werden beim Laden migriert; erst nach
+erfolgreicher Keychain-Speicherung wird die Datei ohne Passwort neu geschrieben.
+
+## Build-Anleitung
 
 Voraussetzungen:
 

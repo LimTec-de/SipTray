@@ -185,6 +185,25 @@ struct SIPSettings: Codable, Equatable {
     var password: String = ""
     var displayName: String = ""
 
+    private enum CodingKeys: String, CodingKey { case server, username, password, displayName }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        server = try values.decodeIfPresent(String.self, forKey: .server) ?? ""
+        username = try values.decodeIfPresent(String.self, forKey: .username) ?? ""
+        password = try values.decodeIfPresent(String.self, forKey: .password) ?? ""
+        displayName = try values.decodeIfPresent(String.self, forKey: .displayName) ?? ""
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(server, forKey: .server)
+        try values.encode(username, forKey: .username)
+        try values.encode(displayName, forKey: .displayName)
+    }
+
     var isComplete: Bool {
         !server.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
@@ -227,11 +246,33 @@ struct AppSettings: Codable, Equatable {
     var rememberedAudioDeviceNames: [String: String] = [:]
     var launchAtLogin = false
     var transcriptionEnabled = false
-    var geminiAPIKey = ""
+    var transcriptionProvider: TranscriptionProvider?
+    var useOpenAIKeyFromHomeEnv: Bool?
     var useGeminiAPIKeyFromHomeEnv = false
-    var geminiModelName = "gemini-3.1-flash-lite-preview"
     var numberRewritePattern = "^\\+"
     var numberRewriteReplacement = "00"
+
+    enum CodingKeys: String, CodingKey {
+        case sip, audio, rememberedAudioDeviceNames, launchAtLogin, transcriptionEnabled
+        case transcriptionProvider, useOpenAIKeyFromHomeEnv, useGeminiAPIKeyFromHomeEnv
+        case numberRewritePattern, numberRewriteReplacement
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        sip = try values.decodeIfPresent(SIPSettings.self, forKey: .sip) ?? SIPSettings()
+        audio = try values.decodeIfPresent(AudioRouteSelection.self, forKey: .audio) ?? AudioRouteSelection()
+        rememberedAudioDeviceNames = try values.decodeIfPresent([String: String].self, forKey: .rememberedAudioDeviceNames) ?? [:]
+        launchAtLogin = try values.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
+        transcriptionEnabled = try values.decodeIfPresent(Bool.self, forKey: .transcriptionEnabled) ?? false
+        transcriptionProvider = try values.decodeIfPresent(TranscriptionProvider.self, forKey: .transcriptionProvider)
+        useOpenAIKeyFromHomeEnv = try values.decodeIfPresent(Bool.self, forKey: .useOpenAIKeyFromHomeEnv)
+        useGeminiAPIKeyFromHomeEnv = try values.decodeIfPresent(Bool.self, forKey: .useGeminiAPIKeyFromHomeEnv) ?? false
+        numberRewritePattern = try values.decodeIfPresent(String.self, forKey: .numberRewritePattern) ?? "^\\+"
+        numberRewriteReplacement = try values.decodeIfPresent(String.self, forKey: .numberRewriteReplacement) ?? "00"
+    }
 }
 
 struct IncomingCall: Identifiable, Equatable {

@@ -25,7 +25,7 @@ prepare_pjsip() {
     rm -f "$PJSIP_BUILD_STAMP"
   fi
 
-  if [[ ! -f "$PJSIP_BUILD_STAMP" ]]; then
+  if [[ ! -f "$PJSIP_BUILD_STAMP" ]] || ! grep -qx 'g7221-disabled-v1' "$PJSIP_BUILD_STAMP"; then
     echo "Preparing PJPROJECT..."
     (
       cd "$PJSIP_DIR"
@@ -38,6 +38,7 @@ prepare_pjsip() {
       make distclean >/dev/null 2>&1 || true
       export MACOSX_DEPLOYMENT_TARGET=13.0
       ./configure \
+        --disable-g7221-codec \
         --disable-video \
         --disable-sdl \
         --disable-ffmpeg \
@@ -46,7 +47,7 @@ prepare_pjsip() {
         --prefix="$PJSIP_DIR/install"
       make EXCLUDE_APP=1 dep
       make EXCLUDE_APP=1 -j"$(sysctl -n hw.ncpu)"
-      touch "$PJSIP_BUILD_STAMP"
+      printf '%s\n' 'g7221-disabled-v1' > "$PJSIP_BUILD_STAMP"
     )
   fi
 
@@ -143,6 +144,7 @@ fi
 echo "Creating app bundle..."
 rm -rf "$BUNDLE_DIR"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$FRAMEWORKS_DIR"
+sh "$ROOT_DIR/Scripts/copy_licenses.sh" "$RESOURCES_DIR/Licenses"
 cp "$EXECUTABLE_PATH" "$MACOS_DIR/$APP_NAME"
 generate_icon
 cp "$ROOT_DIR/.build/${APP_NAME}.icns" "$ICON_PATH"
@@ -167,9 +169,9 @@ cat > "$PLIST_PATH" <<'EOF'
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>1.0.1</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>2</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>LSUIElement</key>

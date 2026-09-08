@@ -43,7 +43,8 @@ jobs:
           Vendor/pjproject/pjlib/lib
           Vendor/pjproject/third_party/lib
           Vendor/pjproject/.codex-local-build-stamp
-        key: pjsip-${{ runner.os }}-${{ hashFiles('Vendor/pjproject/VERSION', 'Vendor/pjproject/configure') }}
+          Vendor/pjproject/pjmedia/include/pjmedia-codec/config_auto.h
+        key: pjsip-no-g7221-${{ runner.os }}-${{ hashFiles('Vendor/pjproject/VERSION', 'Vendor/pjproject/configure', '.github/workflows/build.yml', 'Scripts/patch_pjproject.sh') }}
 
     - name: Build PJSIP
       if: steps.pjsip-cache.outputs.cache-hit != 'true'
@@ -61,6 +62,7 @@ jobs:
         make distclean >/dev/null 2>&1 || true
         export MACOSX_DEPLOYMENT_TARGET=13.0
         ./configure \
+          --disable-g7221-codec \
           --disable-video \
           --disable-sdl \
           --disable-ffmpeg \
@@ -69,7 +71,7 @@ jobs:
           --prefix="$(pwd)/install"
         make EXCLUDE_APP=1 dep
         make EXCLUDE_APP=1 -j$(sysctl -n hw.ncpu)
-        touch .codex-local-build-stamp
+        printf '%s\n' 'g7221-disabled-v1' > .codex-local-build-stamp
 
     - name: Create PJSIP generic symlinks
       run: |
@@ -133,6 +135,7 @@ jobs:
         iconutil -c icns .build/SipTray.iconset -o "$BUNDLE_DIR/Contents/Resources/SipTray.icns"
 
         cp Sources/Info.plist "$BUNDLE_DIR/Contents/Info.plist"
+        sh Scripts/copy_licenses.sh "$PWD/$BUNDLE_DIR/Contents/Resources/Licenses"
         echo "APPL????" > "$BUNDLE_DIR/Contents/PkgInfo"
 
         # Copy and configure Sparkle framework

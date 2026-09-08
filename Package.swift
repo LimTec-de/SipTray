@@ -64,7 +64,6 @@ let package = Package(
                 .linkedLibrary("gsmcodec"),
                 .linkedLibrary("speex"),
                 .linkedLibrary("ilbccodec"),
-                .linkedLibrary("g7221codec"),
                 .linkedLibrary("srtp"),
                 .linkedLibrary("resample"),
                 .linkedLibrary("webrtc"),

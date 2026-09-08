@@ -20,6 +20,10 @@ struct SettingsView: View {
                     Label("Allgemein", systemImage: "gearshape")
                 }
         }
+        .onAppear { state.refreshHomeEnvKeys() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            state.refreshHomeEnvKeys()
+        }
         .padding(12)
         .frame(width: 640, height: 740)
     }
@@ -27,6 +31,11 @@ struct SettingsView: View {
     private var sipTab: some View {
         Form {
             Section("SIP") {
+                if !state.settingsStorageError.isEmpty {
+                    Text(state.settingsStorageError)
+                        .foregroundStyle(.red)
+                        .textSelection(.enabled)
+                }
                 HStack {
                     Circle()
                         .fill(connectionStatusColor)
@@ -158,6 +167,13 @@ struct SettingsView: View {
     private var generalTab: some View {
         Form {
             Section("Allgemein") {
+                Button("Lizenzinformationen anzeigen") {
+                    if let url = Bundle.main.resourceURL?.appendingPathComponent("Licenses/THIRD_PARTY_NOTICES.md") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+                .disabled(!FileManager.default.fileExists(atPath:
+                    Bundle.main.resourceURL?.appendingPathComponent("Licenses/THIRD_PARTY_NOTICES.md").path ?? ""))
                 Toggle(
                     "Automatisch starten",
                     isOn: Binding(
@@ -173,41 +189,44 @@ struct SettingsView: View {
                     )
                 )
 
-                SecureField(
-                    "Gemini API Key (optional)",
-                    text: Binding(
-                        get: { state.settings.geminiAPIKey },
-                        set: { state.setGeminiAPIKey($0) }
-                    )
-                )
+                Picker("Transkriptionsanbieter", selection: Binding(
+                    get: { state.selectedTranscriptionProvider },
+                    set: { state.settings.transcriptionProvider = $0 }
+                )) {
+                    ForEach(TranscriptionProvider.allCases, id: \.self) { provider in
+                        Text(provider.title).tag(provider)
+                    }
+                }
 
-                Toggle(
-                    "GEMINI_API_KEY aus ~/.env verwenden",
-                    isOn: Binding(
-                        get: { state.settings.useGeminiAPIKeyFromHomeEnv },
-                        set: { state.setUseGeminiAPIKeyFromHomeEnv($0) }
-                    )
-                )
-
-                Text(state.geminiAPIKeySourceDescription)
-                    .font(.caption)
-                    .foregroundStyle(
-                        state.settings.useGeminiAPIKeyFromHomeEnv && !state.hasGeminiAPIKeyInHomeEnv
-                            ? Color.orange
-                            : Color.secondary
-                    )
-
-                TextField(
-                    "Gemini Modell",
-                    text: Binding(
-                        get: { state.settings.geminiModelName },
-                        set: { state.setGeminiModelName($0) }
-                    )
-                )
-
-                Text("Wenn gesetzt, wird die lokale Transkription automatisch von Gemini sprachlich bereinigt und in einen Dialog umgewandelt.")
+                Toggle("GEMINI_API_KEY aus ~/.env verwenden", isOn: Binding(
+                    get: { state.settings.useGeminiAPIKeyFromHomeEnv },
+                    set: { state.settings.useGeminiAPIKeyFromHomeEnv = $0 }
+                ))
+                .disabled(!state.homeEnvKeyNames.contains("GEMINI_API_KEY") && !state.settings.useGeminiAPIKeyFromHomeEnv)
+                Text(state.homeEnvKeyNames.contains("GEMINI_API_KEY") ? "Gemini-Schlüssel gefunden" : "Kein Gemini-Schlüssel in ~/.env gefunden")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                Toggle("OPENAI_API_KEY aus ~/.env verwenden", isOn: Binding(
+                    get: { state.settings.useOpenAIKeyFromHomeEnv == true },
+                    set: { state.settings.useOpenAIKeyFromHomeEnv = $0 }
+                ))
+                .disabled(!state.homeEnvKeyNames.contains("OPENAI_API_KEY") && state.settings.useOpenAIKeyFromHomeEnv != true)
+                Text(state.homeEnvKeyNames.contains("OPENAI_API_KEY") ? "OpenAI-Schlüssel gefunden" : "Kein OpenAI-Schlüssel in ~/.env gefunden")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Text("Gemini und OpenAI erhalten nach Gesprächsende beide Audiospuren zur Transkription. Es können API-Kosten entstehen.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack {
+                    Button("Schlüssel neu prüfen") { state.refreshHomeEnvKeys() }
+                    Button("Fehlende Transkripte erneut versuchen") { state.retryTranscriptions() }
+                        .disabled(!state.settings.transcriptionEnabled)
+                }
+                Text(state.transcriptionStatus)
+                    .font(.caption)
+                    .textSelection(.enabled)
 
                 HStack {
                     Button("Spracherkennung anfragen") {
