@@ -104,6 +104,8 @@ jobs:
         security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
 
     - name: Build and Package App
+      env:
+        SPARKLE_KEY: ${{ secrets.SPARKLE_KEY }}
       run: |
         APP_NAME="SipTray"
         BUNDLE_DIR="${APP_NAME}.app"
@@ -114,6 +116,18 @@ jobs:
 
         echo "Building for arm64..."
         MACOSX_DEPLOYMENT_TARGET=13.0 swift build -c release --arch arm64
+
+        # Derive the public key from the same secret used to sign the update.
+        test -n "$SPARKLE_KEY"
+        SPARKLE_BIN=".build/artifacts/sparkle/Sparkle/bin"
+        umask 077
+        KEY_FILE=$(mktemp "$RUNNER_TEMP/sparkle-key.XXXXXX")
+        trap 'rm -f "$KEY_FILE"' EXIT
+        printf '%s' "$SPARKLE_KEY" > "$KEY_FILE"
+        "$SPARKLE_BIN/generate_keys" --account siptray-release -f "$KEY_FILE"
+        PUBLIC_KEY=$("$SPARKLE_BIN/generate_keys" --account siptray-release -p)
+        test -n "$PUBLIC_KEY"
+        rm -f "$KEY_FILE"
 
         cp .build/arm64-apple-macosx/release/SipTray "$BUNDLE_DIR/Contents/MacOS/SipTray"
         chmod +x "$BUNDLE_DIR/Contents/MacOS/SipTray"
@@ -135,6 +149,7 @@ jobs:
         iconutil -c icns .build/SipTray.iconset -o "$BUNDLE_DIR/Contents/Resources/SipTray.icns"
 
         cp Sources/Info.plist "$BUNDLE_DIR/Contents/Info.plist"
+        /usr/libexec/PlistBuddy -c "Set :SUPublicEDKey $PUBLIC_KEY" "$BUNDLE_DIR/Contents/Info.plist"
         sh Scripts/copy_licenses.sh "$PWD/$BUNDLE_DIR/Contents/Resources/Licenses"
         echo "APPL????" > "$BUNDLE_DIR/Contents/PkgInfo"
 
@@ -244,6 +259,13 @@ jobs:
           --download-url-prefix "https://github.com/LimTec-de/SipTray/releases/download/v${{ env.VERSION }}/" \
           --ed-key-file - \
           release <<< "$SPARKLE_KEY"
+
+        SIGNATURE=$(xmllint --xpath 'string(/rss/channel/item/enclosure/@*[local-name()="edSignature"])' release/appcast.xml)
+        if [ -z "$SIGNATURE" ]; then
+          echo "Error: appcast has no EdDSA signature; refusing to create a release." >&2
+          exit 1
+        fi
+        "$SPARKLE_BIN/sign_update" --verify --ed-key-file - release/SipTray_final.zip "$SIGNATURE" <<< "$SPARKLE_KEY"
 
     - name: Create Release
       env:
