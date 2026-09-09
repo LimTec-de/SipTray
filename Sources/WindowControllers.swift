@@ -146,6 +146,8 @@ final class IncomingCallWindowController: NSWindowController {
 private struct TranscriptWindowView: View {
     let record: CallRecord
     let onClose: () -> Void
+    let onGenerateMinutes: (UUID) -> Void
+    @State private var showMinutes = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -159,8 +161,26 @@ private struct TranscriptWindowView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            Picker("Ansicht", selection: $showMinutes) {
+                Text("KI-Gesprächsprotokoll").tag(true)
+                Text("Originaltranskript").tag(false)
+            }
+            .pickerStyle(.segmented)
+            if showMinutes {
+                Text(record.minutesStatus ?? "Noch kein KI-Protokoll erstellt.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if let model = record.minutesModel {
+                    Text("KI-generiert · \(model) · Bitte prüfen")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Button(record.conversationMinutes == nil ? "Protokoll erstellen / erneut versuchen" : "Protokoll neu erstellen") {
+                    onGenerateMinutes(record.id)
+                }
+            }
             ScrollView {
-                Text(record.transcription ?? "Keine Transkription vorhanden.")
+                Text(showMinutes ? (record.conversationMinutes ?? "Das Originaltranskript bleibt unabhängig vom Protokoll verfügbar.") : (record.transcription ?? "Keine Transkription vorhanden."))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -178,14 +198,16 @@ private struct TranscriptWindowView: View {
 final class TranscriptWindowController: NSWindowController, NSWindowDelegate {
     private let hostingController: NSHostingController<TranscriptWindowView>
     private let onClose: () -> Void
+    private let onGenerateMinutes: (UUID) -> Void
 
-    init(record: CallRecord, onClose: @escaping () -> Void) {
+    init(record: CallRecord, onGenerateMinutes: @escaping (UUID) -> Void, onClose: @escaping () -> Void) {
         self.onClose = onClose
+        self.onGenerateMinutes = onGenerateMinutes
         hostingController = NSHostingController(
-            rootView: TranscriptWindowView(record: record, onClose: onClose)
+            rootView: TranscriptWindowView(record: record, onClose: onClose, onGenerateMinutes: onGenerateMinutes)
         )
         let window = NSWindow(contentViewController: hostingController)
-        window.title = "Transkription"
+        window.title = "Gesprächsprotokoll und Transkription"
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.isReleasedWhenClosed = false
         window.setContentSize(NSSize(width: 560, height: 420))
@@ -199,7 +221,7 @@ final class TranscriptWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func update(record: CallRecord) {
-        hostingController.rootView = TranscriptWindowView(record: record, onClose: onClose)
+        hostingController.rootView = TranscriptWindowView(record: record, onClose: onClose, onGenerateMinutes: onGenerateMinutes)
     }
 
     func present() {

@@ -57,6 +57,22 @@ SIGNING_IDENTITY="Developer ID Application: Name (ID)" ./build.sh
 
 ## Features und Vorteile
 
+### KI-Gespraechsprotokoll
+
+Zusaetzlich zum Originaltranskript kann automatisch ein separates KI-Protokoll
+erstellt werden: Kurzfassung, Themen, Entscheidungen, Aufgaben, Fragen und
+Risiken. Die Punkte enthalten Quellenzitate; unklare Zustaendigkeiten und Termine
+bleiben offen. KI-Ausgaben muessen vor Verwendung geprueft werden.
+
+Unter Einstellungen/Allgemein sind Protokoll-Anbieter und Textmodell waehlbar.
+Der komplette Transkripttext wird in einem zusaetzlichen API-Aufruf uebertragen;
+es entstehen weitere API-Kosten. Fuer Apple-Transkripte muss ein Cloud-Anbieter
+explizit gewaehlt werden. Die zugehoerige Schluessel-Option muss aktiviert sein.
+Im Gespraechsfenster kann zwischen Protokoll und Originaltranskript gewechselt
+und die Protokollerzeugung unabhaengig von der Audioaufnahme wiederholt werden.
+
+### Telefonie
+
 - Menubar-first statt Vollfenster-App: schneller Zugriff ohne klassisches Softphone-Fenster.
 - Native macOS-Integration in Swift: wirkt wie eine System-App statt wie ein portierter SIP-Client.
 - Eingehende Anrufe als zentrales großes Modal auf dem Primary Screen.

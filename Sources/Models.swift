@@ -67,6 +67,9 @@ struct CallRecord: Codable, Identifiable, Equatable {
     var date: Date
     var isFavorite: Bool
     var transcription: String?
+    var conversationMinutes: String?
+    var minutesStatus: String?
+    var minutesModel: String?
     var disposition: Disposition?
     var answeredBy: String?
     var queueName: String?
@@ -247,6 +250,12 @@ struct AppSettings: Codable, Equatable {
     var launchAtLogin = false
     var transcriptionEnabled = false
     var transcriptionProvider: TranscriptionProvider?
+    var automaticMinutes = true
+    var minutesProvider: TranscriptionProvider?
+    var geminiMinutesModel = "gemini-3.8-flash"
+    var openAIMinutesModel = "gpt-5.4-mini"
+    var geminiTranscriptionModel = TranscriptionProvider.gemini.defaultModel
+    var openAITranscriptionModel = TranscriptionProvider.openai.defaultModel
     var useOpenAIKeyFromHomeEnv: Bool?
     var useGeminiAPIKeyFromHomeEnv = false
     var numberRewritePattern = "^\\+"
@@ -255,6 +264,8 @@ struct AppSettings: Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case sip, audio, rememberedAudioDeviceNames, launchAtLogin, transcriptionEnabled
         case transcriptionProvider, useOpenAIKeyFromHomeEnv, useGeminiAPIKeyFromHomeEnv
+        case geminiTranscriptionModel, openAITranscriptionModel
+        case automaticMinutes, minutesProvider, geminiMinutesModel, openAIMinutesModel
         case numberRewritePattern, numberRewriteReplacement
     }
 
@@ -268,6 +279,12 @@ struct AppSettings: Codable, Equatable {
         launchAtLogin = try values.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
         transcriptionEnabled = try values.decodeIfPresent(Bool.self, forKey: .transcriptionEnabled) ?? false
         transcriptionProvider = try values.decodeIfPresent(TranscriptionProvider.self, forKey: .transcriptionProvider)
+        automaticMinutes = try values.decodeIfPresent(Bool.self, forKey: .automaticMinutes) ?? true
+        minutesProvider = try values.decodeIfPresent(TranscriptionProvider.self, forKey: .minutesProvider)
+        geminiMinutesModel = try values.decodeIfPresent(String.self, forKey: .geminiMinutesModel) ?? "gemini-3.8-flash"
+        openAIMinutesModel = try values.decodeIfPresent(String.self, forKey: .openAIMinutesModel) ?? "gpt-5.4-mini"
+        geminiTranscriptionModel = try values.decodeIfPresent(String.self, forKey: .geminiTranscriptionModel) ?? TranscriptionProvider.gemini.defaultModel
+        openAITranscriptionModel = try values.decodeIfPresent(String.self, forKey: .openAITranscriptionModel) ?? TranscriptionProvider.openai.defaultModel
         useOpenAIKeyFromHomeEnv = try values.decodeIfPresent(Bool.self, forKey: .useOpenAIKeyFromHomeEnv)
         useGeminiAPIKeyFromHomeEnv = try values.decodeIfPresent(Bool.self, forKey: .useGeminiAPIKeyFromHomeEnv) ?? false
         numberRewritePattern = try values.decodeIfPresent(String.self, forKey: .numberRewritePattern) ?? "^\\+"

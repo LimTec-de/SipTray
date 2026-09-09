@@ -140,6 +140,7 @@ final class AppCoordinator: ObservableObject {
         if transcriptWindowController == nil {
             transcriptWindowController = TranscriptWindowController(
                 record: record,
+                onGenerateMinutes: { [weak self] id in self?.state.generateMinutes(for: id) },
                 onClose: { [weak self] in
                     self?.state.dismissTranscript()
                 }

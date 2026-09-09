@@ -1,5 +1,4 @@
 import AppKit
-import AVFoundation
 import Combine
 import CoreServices
 import Foundation
@@ -28,6 +27,7 @@ final class AppState: ObservableObject {
     @Published var settingsStorageError = ""
     @Published var homeEnvKeyNames: Set<String> = []
     private var transcriptionJobs: Set<UUID> = []
+    private var minutesJobs: Set<UUID> = []
     private var isRecoveringTranscriptions = false
     @Published var dialedNumber = ""
     @Published var favorites: [Contact]
@@ -67,6 +67,7 @@ final class AppState: ObservableObject {
     private let microphoneLoopbackService: MicrophoneLoopbackService
     private let sipService: SIPServiceProtocol
     private var cancellables: Set<AnyCancellable> = []
+    private var hasStartedServices = false
     private var callRecordIDsByActiveCallID: [UUID: UUID] = [:]
     private var pjsipLevelTask: Task<Void, Never>?
     private var audioDeviceMonitorTask: Task<Void, Never>?
@@ -110,7 +111,6 @@ final class AppState: ObservableObject {
         refreshHomeEnvKeys()
         syncLaunchAtLoginSetting()
         bindPersistence()
-        requestMicrophoneAccessIfNeeded()
         refreshAudioDevices()
         startAudioDeviceMonitoring()
         updateAudioConfiguration()
@@ -120,9 +120,10 @@ final class AppState: ObservableObject {
         )
         self.sipService.configure(settings: settings.sip)
         self.sipService.configureFavoritePresence(contacts: loadedFavorites)
-        self.sipService.start()
         refreshSpeechRecognitionStatus()
-        recoverPendingTranscriptions()
+        DispatchQueue.main.async { [weak self] in
+            self?.checkPermissions()
+        }
     }
 
     deinit {
@@ -162,7 +163,6 @@ final class AppState: ObservableObject {
         )
         callRecordIDsByActiveCallID[newCall.id] = record.id
         sipService.associateRecordingRecord(record.id, with: newCall.id)
-        transcriptionService.startIfNeeded(for: newCall.id, enabled: settings.transcriptionEnabled && selectedTranscriptionProvider == .apple)
         refreshPJSIPMeterPolling()
         clearDialedNumber()
     }
@@ -239,9 +239,6 @@ final class AppState: ObservableObject {
         guard settings.transcriptionEnabled != enabled else { return }
         settings.transcriptionEnabled = enabled
         if enabled {
-            if selectedTranscriptionProvider == .apple {
-                requestSpeechRecognitionAccessIfNeeded()
-            }
             recoverPendingTranscriptions()
         }
         sipService.configureTranscription(
@@ -261,6 +258,52 @@ final class AppState: ObservableObject {
     func retryTranscriptions() {
         refreshHomeEnvKeys()
         recoverPendingTranscriptions()
+    }
+
+    func generateMinutes(for recordID: UUID) {
+        Task { await processMinutes(recordID: recordID) }
+    }
+
+    func retryMissingMinutes() {
+        Task {
+            for record in recentCallsLast7Days where record.transcription?.isEmpty == false && record.conversationMinutes == nil {
+                await processMinutes(recordID: record.id)
+            }
+        }
+    }
+
+    private func processMinutes(recordID: UUID) async {
+        guard !minutesJobs.contains(recordID),
+              let record = recentCalls.first(where: { $0.id == recordID }),
+              let transcript = record.transcription, !transcript.isEmpty else { return }
+        minutesJobs.insert(recordID)
+        defer { minutesJobs.remove(recordID) }
+        let provider = settings.minutesProvider ?? selectedTranscriptionProvider
+        let model = provider == .openai ? settings.openAIMinutesModel : settings.geminiMinutesModel
+        func status(_ message: String) {
+            if let index = recentCalls.firstIndex(where: { $0.id == recordID }) {
+                recentCalls[index].minutesStatus = message
+            }
+        }
+        status("KI-Protokoll wird erstellt …")
+        do {
+            guard provider != .apple else {
+                throw TranscriptionFailure(message: "Für das Protokoll in den Einstellungen Gemini oder OpenAI auswählen. Das Apple-Transkript bleibt lokal.")
+            }
+            let allowed = provider == .openai ? settings.useOpenAIKeyFromHomeEnv == true : settings.useGeminiAPIKeyFromHomeEnv
+            guard allowed, let key = HomeEnv.key(provider.keyName) else {
+                throw TranscriptionFailure(message: "Für das Protokoll \(provider.keyName) aus ~/.env aktivieren.")
+            }
+            let client = ConversationMinutesClient(provider: provider, model: model, apiKey: key)
+            let minutes = try await client.generate(transcript: transcript)
+            guard let index = recentCalls.firstIndex(where: { $0.id == recordID }),
+                  recentCalls[index].transcription == transcript else { return }
+            recentCalls[index].conversationMinutes = minutes
+            recentCalls[index].minutesModel = "\(provider.title) / \(model)"
+            status("KI-Protokoll erstellt. Inhalt bitte anhand des Transkripts prüfen.")
+        } catch {
+            status("Protokoll fehlgeschlagen: \(error.localizedDescription) Das Transkript bleibt erhalten.")
+        }
     }
 
     func setNumberRewritePattern(_ value: String) {
@@ -587,29 +630,14 @@ final class AppState: ObservableObject {
             return
         }
 
-        if #available(macOS 14.0, *) {
-            let recordPermission = AVAudioApplication.shared.recordPermission
-            if recordPermission == .undetermined {
-                microphoneLoopbackStatus = "Bitte Mikrofonzugriff bestaetigen."
-                AVAudioApplication.requestRecordPermission { [weak self] granted in
-                    Task { @MainActor in
-                        guard let self else { return }
-                        if granted {
-                            self.startMicrophoneLoopbackNow()
-                        } else {
-                            self.microphoneLoopbackStatus = "Mikrofonzugriff wurde nicht erlaubt. Bitte in Systemeinstellungen > Datenschutz > Mikrofon fuer SipTray aktivieren."
-                            self.openMicrophonePrivacySettings()
-                        }
-                    }
-                }
-                return
-            }
+        microphoneLoopbackStatus = "Mikrofonfreigabe wird geprüft …"
+        SipPermissionRequester.checkPermissions(includeSpeechRecognition: requiresSpeechRecognition) { [weak self] in
+            self?.startMicrophoneLoopbackNow()
         }
-
-        startMicrophoneLoopbackNow()
     }
 
     private func startMicrophoneLoopbackNow() {
+        guard !isMicrophoneLoopbackRunning else { return }
         do {
             try microphoneLoopbackService.start(
                 inputDeviceID: preferredHostDeviceID(for: .microphone),
@@ -629,17 +657,26 @@ final class AppState: ObservableObject {
     }
 
     func openMicrophonePrivacySettings() {
-        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") else {
-            return
-        }
-        NSWorkspace.shared.open(url)
+        checkPermissions()
     }
 
-    func openSpeechRecognitionPrivacySettings() {
-        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition") else {
-            return
+    private var requiresSpeechRecognition: Bool {
+        settings.transcriptionEnabled && selectedTranscriptionProvider == .apple
+    }
+
+    func checkPermissions() {
+        SipPermissionRequester.checkPermissions(includeSpeechRecognition: requiresSpeechRecognition) { [weak self] in
+            self?.permissionsGranted()
         }
-        NSWorkspace.shared.open(url)
+    }
+
+    private func permissionsGranted() {
+        if !hasStartedServices {
+            hasStartedServices = true
+            sipService.start()
+        }
+        refreshSpeechRecognitionStatus()
+        recoverPendingTranscriptions()
     }
 
     func checkForUpdates() {
@@ -647,20 +684,9 @@ final class AppState: ObservableObject {
     }
 
     func requestSpeechRecognitionAccessIfNeeded() {
-        let status = transcriptionService.authorizationStatus
-        switch status {
-        case .authorized:
-            refreshSpeechRecognitionStatus()
-        case .notDetermined:
-            speechRecognitionStatus = "Bitte Spracherkennung bestätigen."
-            transcriptionService.requestAuthorization { [weak self] _ in
-                self?.refreshSpeechRecognitionStatus()
-            }
-        case .denied, .restricted:
-            refreshSpeechRecognitionStatus()
-            openSpeechRecognitionPrivacySettings()
-        @unknown default:
-            speechRecognitionStatus = "Spracherkennung unbekannt."
+        refreshSpeechRecognitionStatus()
+        SipPermissionRequester.checkPermissions(includeSpeechRecognition: true) { [weak self] in
+            self?.permissionsGranted()
         }
     }
 
@@ -677,7 +703,6 @@ final class AppState: ObservableObject {
         )
         callRecordIDsByActiveCallID[acceptedCall.id] = record.id
         sipService.associateRecordingRecord(record.id, with: acceptedCall.id)
-        transcriptionService.startIfNeeded(for: acceptedCall.id, enabled: settings.transcriptionEnabled && selectedTranscriptionProvider == .apple)
         refreshPJSIPMeterPolling()
         self.incomingCall = nil
         isIncomingCallModalVisible = false
@@ -726,7 +751,6 @@ final class AppState: ObservableObject {
         )
         callRecordIDsByActiveCallID[newCall.id] = record.id
         sipService.associateRecordingRecord(record.id, with: newCall.id)
-        transcriptionService.startIfNeeded(for: newCall.id, enabled: settings.transcriptionEnabled && selectedTranscriptionProvider == .apple)
         refreshPJSIPMeterPolling()
         clearDialedNumber()
     }
@@ -807,6 +831,10 @@ final class AppState: ObservableObject {
             .sink { [weak self] calls in
                 guard let self else { return }
                 let trimmed = Self.trimmedRecentCalls(calls)
+                if let selected = self.selectedTranscriptCall,
+                   let updated = trimmed.first(where: { $0.id == selected.id }), updated != selected {
+                    self.selectedTranscriptCall = updated
+                }
                 if trimmed != calls {
                     self.recentCalls = trimmed
                 } else {
@@ -863,10 +891,6 @@ final class AppState: ObservableObject {
         return nil
     }
 
-    private func requestMicrophoneAccessIfNeeded() {
-        AVCaptureDevice.requestAccess(for: .audio) { _ in }
-    }
-
     private func refreshSpeechRecognitionStatus() {
         switch transcriptionService.authorizationStatus {
         case .authorized:
@@ -884,6 +908,10 @@ final class AppState: ObservableObject {
 
     private func recoverPendingTranscriptions() {
         guard settings.transcriptionEnabled, !isRecoveringTranscriptions else { return }
+        guard !requiresSpeechRecognition || transcriptionService.authorizationStatus == .authorized else {
+            requestSpeechRecognitionAccessIfNeeded()
+            return
+        }
         isRecoveringTranscriptions = true
         // One batch at a time; each record is also protected against duplicate callbacks.
         Task { [weak self] in
@@ -1137,6 +1165,10 @@ extension AppState: SIPServiceDelegate {
         let provider = selectedTranscriptionProvider
         transcriptionStatus = "\(provider.title): Aufnahme wird verarbeitet …"
         do {
+            if provider == .apple, transcriptionService.authorizationStatus != .authorized {
+                requestSpeechRecognitionAccessIfNeeded()
+                throw TranscriptionFailure(message: "Spracherkennung im Berechtigungsassistenten erlauben.")
+            }
             guard let local, let remote else {
                 throw TranscriptionFailure(message: "Eine Gesprächsspur fehlt. Transkription nicht vollständig.")
             }
@@ -1155,32 +1187,28 @@ extension AppState: SIPServiceDelegate {
             guard let localURL = prepared.0, let remoteURL = prepared.1 else {
                 throw TranscriptionFailure(message: "Die Aufnahme konnte nicht gelesen werden.")
             }
-            let localSegments: [CallTranscriptionService.TranscriptSegment]
-            let remoteSegments: [CallTranscriptionService.TranscriptSegment]
+            let transcript: String?
             if provider == .apple {
                 guard let first = await transcribePreparedSegmentsBackground(localURL, speaker: .local, enabled: true, service: service),
                       let second = await transcribePreparedSegmentsBackground(remoteURL, speaker: .remote, enabled: true, service: service) else {
                     throw TranscriptionFailure(message: "Apple Spracherkennung fehlgeschlagen oder Zeitlimit erreicht.")
                 }
-                localSegments = first
-                remoteSegments = second
+                transcript = service.mergeSegments(local: first, remote: second)
             } else {
-                let client = CloudTranscription(provider: provider, apiKey: key)
-                let result = try await Task.detached {
-                    let first = try await client.transcribe(localURL, speaker: .local)
-                    let second = try await client.transcribe(remoteURL, speaker: .remote)
-                    return (first, second)
+                let model = provider == .gemini ? settings.geminiTranscriptionModel : settings.openAITranscriptionModel
+                let client = CloudTranscription(provider: provider, apiKey: key, model: model)
+                transcript = try await Task.detached {
+                    try await client.transcribeConversation(local: localURL, remote: remoteURL)
                 }.value
-                localSegments = result.0
-                remoteSegments = result.1
             }
-            guard let merged = service.mergeSegments(local: localSegments, remote: remoteSegments),
+            guard let merged = transcript,
                   let index = recentCalls.firstIndex(where: { $0.id == recordID }) else {
                 throw TranscriptionFailure(message: "Keine Sprache erkannt.")
             }
             recentCalls[index].transcription = merged
             // Keep recordings until the existing seven-day retention expires, including on errors.
             transcriptionStatus = "\(provider.title): Transkription abgeschlossen."
+            if settings.automaticMinutes { await processMinutes(recordID: recordID) }
         } catch {
             transcriptionStatus = "\(provider.title): \(error.localizedDescription) Aufnahme bleibt für einen erneuten Versuch erhalten."
         }

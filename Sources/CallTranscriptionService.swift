@@ -42,20 +42,6 @@ final class CallTranscriptionService: @unchecked Sendable {
         cleanupStaleArtifacts(olderThanDays: 7)
     }
 
-    func startIfNeeded(for callID: UUID, enabled: Bool) {
-        _ = callID
-        guard enabled else { return }
-        requestSpeechAuthorizationIfNeeded()
-    }
-
-    func requestAuthorization(completion: ((SFSpeechRecognizerAuthorizationStatus) -> Void)? = nil) {
-        SFSpeechRecognizer.requestAuthorization { status in
-            DispatchQueue.main.async {
-                completion?(status)
-            }
-        }
-    }
-
     func recordingURL(for callID: UUID) -> URL {
         directoryURL.appendingPathComponent("\(callID.uuidString).wav")
     }
@@ -210,23 +196,12 @@ final class CallTranscriptionService: @unchecked Sendable {
             _ = directoryURL
         }
 
-        let status = SFSpeechRecognizer.authorizationStatus()
-        switch status {
-        case .authorized:
-            proceed()
-        case .notDetermined:
-            SFSpeechRecognizer.requestAuthorization { newStatus in
-                DispatchQueue.main.async {
-                    if newStatus == .authorized {
-                        proceed()
-                    } else {
-                        completion(nil)
-                    }
-                }
-            }
-        default:
+        // Consent is requested by the shared assistant before transcription starts.
+        guard authorizationStatus == .authorized else {
             completion(nil)
+            return
         }
+        proceed()
     }
 
     func mergeTranscript(local: String?, remote: String?) -> String? {
@@ -294,11 +269,6 @@ final class CallTranscriptionService: @unchecked Sendable {
             guard modifiedAt < cutoff else { continue }
             try? FileManager.default.removeItem(at: fileURL)
         }
-    }
-
-    private func requestSpeechAuthorizationIfNeeded() {
-        guard authorizationStatus == .notDetermined else { return }
-        requestAuthorization()
     }
 
     private func waitForRecordingToStabilize(_ fileURL: URL) {

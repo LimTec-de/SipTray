@@ -141,7 +141,7 @@ struct SettingsView: View {
                         state.toggleMicrophoneLoopback()
                     }
 
-                    Button("Mikrofonfreigabe oeffnen") {
+                    Button("Mikrofonfreigabe prüfen") {
                         state.openMicrophonePrivacySettings()
                     }
 
@@ -191,11 +191,30 @@ struct SettingsView: View {
 
                 Picker("Transkriptionsanbieter", selection: Binding(
                     get: { state.selectedTranscriptionProvider },
-                    set: { state.settings.transcriptionProvider = $0 }
+                    set: {
+                        state.settings.transcriptionProvider = $0
+                        if state.settings.transcriptionEnabled { state.checkPermissions() }
+                    }
                 )) {
                     ForEach(TranscriptionProvider.allCases, id: \.self) { provider in
                         Text(provider.title).tag(provider)
                     }
+                }
+
+                if state.selectedTranscriptionProvider == .gemini {
+                    TextField("Gemini-Modell-ID", text: $state.settings.geminiTranscriptionModel)
+                    Text("Das Modell muss Audioeingaben und strukturierte JSON-Antworten der Interactions API unterstützen.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else if state.selectedTranscriptionProvider == .openai {
+                    Picker("OpenAI-Modell", selection: $state.settings.openAITranscriptionModel) {
+                        ForEach(TranscriptionProvider.openAIModels, id: \.self) { model in
+                            Text(model).tag(model)
+                        }
+                    }
+                    Text("gpt-4o-transcribe-diarize unterscheidet Sprecher. Whisper liefert Text mit Zeitmarken ohne Sprecherzuordnung.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 Toggle("GEMINI_API_KEY aus ~/.env verwenden", isOn: Binding(
@@ -216,7 +235,7 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                Text("Gemini und OpenAI erhalten nach Gesprächsende beide Audiospuren zur Transkription. Es können API-Kosten entstehen.")
+                Text("Gemini und OpenAI erhalten nach Gesprächsende das vollständige Gespräch mit beiden Seiten als eine gemeinsame Audiodatei. Es können API-Kosten entstehen.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 HStack {
@@ -228,13 +247,25 @@ struct SettingsView: View {
                     .font(.caption)
                     .textSelection(.enabled)
 
+                Toggle("KI-Gesprächsprotokoll automatisch erstellen", isOn: $state.settings.automaticMinutes)
+                Button("Fehlende Protokolle erstellen / erneut versuchen") { state.retryMissingMinutes() }
+                Picker("Protokoll-Anbieter", selection: $state.settings.minutesProvider) {
+                    Text("Wie Transkription (nur Cloud)").tag(Optional<TranscriptionProvider>.none)
+                    Text("Gemini").tag(Optional(TranscriptionProvider.gemini))
+                    Text("OpenAI").tag(Optional(TranscriptionProvider.openai))
+                }
+                if (state.settings.minutesProvider ?? state.selectedTranscriptionProvider) == .openai {
+                    TextField("Protokoll-Textmodell", text: $state.settings.openAIMinutesModel)
+                } else if (state.settings.minutesProvider ?? state.selectedTranscriptionProvider) == .gemini {
+                    TextField("Protokoll-Textmodell", text: $state.settings.geminiMinutesModel)
+                }
+                Text("Das vollständige Transkript wird für das Protokoll zusätzlich an den gewählten Cloud-Anbieter gesendet. Es entstehen zusätzliche API-Kosten. Personen und Fristen bitte prüfen.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
                 HStack {
                     Button("Spracherkennung anfragen") {
                         state.requestSpeechRecognitionAccessIfNeeded()
-                    }
-
-                    Button("Spracherkennung öffnen") {
-                        state.openSpeechRecognitionPrivacySettings()
                     }
 
                     Spacer()
@@ -256,6 +287,13 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(state.isDefaultPhoneApp ? Color.green : Color.secondary)
                 }
+
+                Button("Berechtigungen prüfen") {
+                    state.checkPermissions()
+                }
+                Text("Der Assistent prüft Mikrofon und bei Apple-Transkription die Spracherkennung der Reihe nach. Bereits erteilte Freigaben werden übersprungen.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
                 Button("Auf Updates prüfen") {
                     state.checkForUpdates()

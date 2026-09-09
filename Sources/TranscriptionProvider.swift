@@ -12,6 +12,16 @@ enum TranscriptionProvider: String, Codable, CaseIterable {
     }
 
     var keyName: String { self == .openai ? "OPENAI_API_KEY" : "GEMINI_API_KEY" }
+
+    var defaultModel: String {
+        switch self {
+        case .apple: return ""
+        case .gemini: return "gemini-3.8-flash"
+        case .openai: return "gpt-4o-transcribe-diarize"
+        }
+    }
+
+    static let openAIModels = ["gpt-4o-transcribe-diarize", "whisper-1"]
 }
 
 enum HomeEnv {

@@ -19,9 +19,11 @@ struct TranscriptionTests {
         try await tests.testOpenAIRequestAndTimedResponse()
         try await tests.testGeminiRequestAndStructuredResponse()
         await tests.testHTTPFailureDoesNotReturnTranscriptOrExposeBody()
-        try await tests.testLongRecordingPreservesChunkOffsets()
+        try await tests.testLongConversationUsesOneTranscript()
         await tests.testIncompleteGeminiResponseFails()
-        print("8 transcription checks passed (no network requests).")
+        try await tests.testModelSelection()
+        try tests.testConversationMixPreservesBothSidesAndSilence()
+        print("10 transcription checks passed (no network requests).")
     }
     func testEnvAssignments() {
         let contents = """
@@ -83,7 +85,7 @@ struct TranscriptionTests {
         }
     }
 
-    func testLongRecordingPreservesChunkOffsets() async throws {
+    func testLongConversationUsesOneTranscript() async throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
         defer { try? FileManager.default.removeItem(at: url) }
         let format = AVAudioFormat(standardFormatWithSampleRate: 8000, channels: 1)!
@@ -94,14 +96,46 @@ struct TranscriptionTests {
             let file = try AVAudioFile(forWriting: url, settings: format.settings)
             try file.write(from: buffer)
         }
-        let segments = try await client(provider: .openai).transcribe(url, speaker: .remote)
-        // AVAudioFile may return fewer frames than requested, even before EOF.
-        let input = try AVAudioFile(forReading: url)
-        let firstChunk = AVAudioPCMBuffer(pcmFormat: input.processingFormat, frameCapacity: 8000 * 120)!
-        try input.read(into: firstChunk)
-        XCTAssertEqual(segments.count, 2)
-        XCTAssertEqual(segments.map(\.timestamp), [1, 1 + Double(firstChunk.frameLength) / 8000])
-        XCTAssertTrue(segments.allSatisfy { $0.speaker == .remote })
+        let transcript = try await client(provider: .openai).transcribeConversation(local: url, remote: url)
+        XCTAssertEqual(transcript, "[00:01] Hallo")
+    }
+
+    func testConversationMixPreservesBothSidesAndSilence() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let rate = 16000.0
+        let format = AVAudioFormat(standardFormatWithSampleRate: rate, channels: 1)!
+        func track(_ name: String, seconds: Int, toneStart: Int) throws -> URL {
+            let url = directory.appendingPathComponent(name + ".wav")
+            let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: UInt32(seconds * 16000))!
+            buffer.frameLength = buffer.frameCapacity
+            for i in 0..<Int(buffer.frameLength) {
+                let time = Double(i) / rate
+                buffer.floatChannelData![0][i] = time >= Double(toneStart) ? Float(sin(time * 440 * 2 * .pi) * 0.6) : 0
+            }
+            let file = try AVAudioFile(forWriting: url, settings: format.settings)
+            try file.write(from: buffer)
+            return url
+        }
+        let local = try track("local", seconds: 1, toneStart: 0)
+        let remote = try track("remote", seconds: 3, toneStart: 2)
+        let output = directory.appendingPathComponent("conversation.m4a")
+        XCTAssertEqual(try ConversationAudio.mix(local: local, remote: remote, output: output), 3)
+        let file = try AVAudioFile(forReading: output)
+        XCTAssertTrue(abs(Double(file.length) / rate - 3) < 0.15)
+        func peak(at seconds: Double) throws -> Float {
+            file.framePosition = Int64(seconds * rate)
+            let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 1600)!
+            try file.read(into: buffer)
+            return (0..<Int(buffer.frameLength)).map { abs(buffer.floatChannelData![0][$0]) }.max() ?? 0
+        }
+        XCTAssertTrue(try peak(at: 0.5) > 0.1)
+        XCTAssertTrue(try peak(at: 1.5) < 0.01)
+        XCTAssertTrue(try peak(at: 2.5) > 0.1)
+        let result = try JSONDecoder().decode(CloudTranscription.Result.self,
+            from: Data(#"{"segments":[{"start":0,"end":1,"text":"Test","speaker":"A"}]}"#.utf8))
+        XCTAssertEqual(result.segments.first?.speaker, "A")
     }
 
     func testIncompleteGeminiResponseFails() async {
@@ -119,6 +153,45 @@ struct TranscriptionTests {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [TranscriptionProtocol.self]
         return CloudTranscription(provider: provider, apiKey: "test-fixture", session: URLSession(configuration: config))
+    }
+
+    func testModelSelection() async throws {
+        var settings = AppSettings()
+        settings.geminiTranscriptionModel = "custom-audio-model-fixture"
+        settings.openAITranscriptionModel = "whisper-1"
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(settings))
+        XCTAssertEqual(decoded, settings)
+        let old = try JSONDecoder().decode(AppSettings.self, from: Data("{}".utf8))
+        XCTAssertEqual(old.openAITranscriptionModel, "gpt-4o-transcribe-diarize")
+        XCTAssertEqual(old.geminiTranscriptionModel, "gemini-3.8-flash")
+
+        var gemini = client(provider: .gemini)
+        gemini.model = settings.geminiTranscriptionModel
+        let json = try JSONSerialization.jsonObject(with: gemini.makeRequest(Data()).httpBody!) as! [String: Any]
+        XCTAssertEqual(json["model"] as? String, settings.geminiTranscriptionModel)
+        var openai = client(provider: .openai)
+        let defaultBody = String(decoding: try openai.makeRequest(Data()).httpBody!, as: UTF8.self)
+        XCTAssertTrue(defaultBody.contains("diarized_json"))
+        openai.model = settings.openAITranscriptionModel
+        let body = String(decoding: try openai.makeRequest(Data()).httpBody!, as: UTF8.self)
+        XCTAssertTrue(body.contains("whisper-1"))
+        XCTAssertTrue(body.contains("verbose_json"))
+        XCTAssertTrue(body.contains("timestamp_granularities[]"))
+        XCTAssertFalse(body.contains("chunking_strategy"))
+        let response = try await openai.request(Data())
+        XCTAssertEqual(response.segments.first?.start, 1)
+        for invalid in ["", "unsupported-fixture"] {
+            openai.model = invalid
+            do {
+                _ = try openai.makeRequest(Data())
+                XCTFail("Invalid model must fail before upload")
+            } catch is TranscriptionFailure {}
+        }
+        gemini.model = "  "
+        do {
+            _ = try gemini.makeRequest(Data())
+            XCTFail("Empty Gemini model must fail before upload")
+        } catch is TranscriptionFailure {}
     }
 }
 
